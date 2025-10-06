@@ -14,5 +14,5 @@ func main() {
 		fmt.Println(err)
 	}
 
-	db.AutoMigrate(&models.BaseModel{}, &models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{})
+	db.AutoMigrate(&models.BaseModel{}, &models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{}, &models.EquipmentStatus{})
 }
