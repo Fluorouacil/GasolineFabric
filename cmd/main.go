@@ -2,17 +2,35 @@ package main
 
 import (
 	"GasolineFabric/internal/models"
-	"fmt"
+	"GasolineFabric/internal/utils"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"github.com/labstack/echo/v4"
 )
 
 func main() {
-	db, err := gorm.Open(postgres.Open("host=localhost user=GasolineAdmin password=admin dbname=GasolineFabric TimeZone=Europe/Samara"))
-	if err != nil {
-		fmt.Println(err)
-	}
+	db := utils.InitDB() // твоя функция инициализации GORM
 
-	db.AutoMigrate(&models.BaseModel{}, &models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{}, &models.EquipmentStatus{})
+	e := echo.New()
+
+	// Equipment
+	e.POST("/equipment", utils.GenericPostHandler[models.Equipment](db))
+	e.GET("/equipment/:uuid", utils.GenericGetHandler[models.Equipment](db))
+
+	// EquipmentType
+	e.POST("/equipment-types", utils.GenericPostHandler[models.EquipmentType](db))
+	e.GET("/equipment-types/:uuid", utils.GenericGetHandler[models.EquipmentType](db))
+
+	// EquipmentStatus
+	e.POST("/equipment-statuses", utils.GenericPostHandlerWithPreload[models.EquipmentStatus](
+		db,
+		"Equipment",
+		"Equipment.EquipmentType",
+	))
+	e.GET("/equipment-statuses/:uuid", utils.GenericGetHandlerWithPreload[models.EquipmentStatus](
+		db,
+		"Equipment",
+		"Equipment.EquipmentType",
+	))
+
+	e.Start(":8080")
 }
