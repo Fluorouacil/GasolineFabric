@@ -29,6 +29,24 @@ func SafeCreate[T any](db *gorm.DB, item *T) error {
 	return db.Create(item).Error
 }
 
+func DeleteByUUID[T any](db *gorm.DB, uuidStr string) error {
+	parsedUUID, err := uuid.Parse(uuidStr)
+	if err != nil {
+		return err
+	}
+
+	var item T
+	if err := db.Where("uuid = ?", parsedUUID).First(&item).Error; err != nil {
+		return err
+	}
+
+	if err := db.Delete(&item).Error; err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func setField(structVal reflect.Value, fieldName string, value interface{}) {
 	field := structVal.FieldByName(fieldName)
 	if field.IsValid() && field.CanSet() {
