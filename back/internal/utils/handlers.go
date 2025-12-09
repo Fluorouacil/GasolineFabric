@@ -2,146 +2,232 @@ package utils
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
+	"regexp"
+
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
 
-// GenericListHandler возвращает список записей в формате simple-rest
+// GenericListHandler обрабатывает запросы getList (с пагинацией, фильтрацией, сортировкой)
+// и getMany (по переданным query-параметрам ?id=1&id=2&id=3).
 func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// === Пагинация: _start, _end ================================
-		_startStr := c.QueryParam("_start")
-		_endStr := c.QueryParam("_end")
+		var items []T
+		model := new(T)
+		query := db.Model(model)
 
-		var offset, limit int
-		if _startStr != "" && _endStr != "" {
-			_start, _ := strconv.Atoi(_startStr)
-			_end, _ := strconv.Atoi(_endStr)
-			offset = _start
-			limit = _end - _start
-		} else {
-			// Без пагинации → все записи (не рекомендуется для продакшена)
-			limit = 10
+		ids := c.QueryParams()["id"]
+		if len(ids) > 0 {
+			if err := query.Where("id IN ?", ids).Find(&items).Error; err != nil {
+				return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error"})
+			}
+
+			total := int64(len(items))
+			setPaginationHeaders(c, 0, int(total), total)
+			return c.JSON(http.StatusOK, items)
 		}
 
-		// === Сортировка: _sort, _order ==============================
-		_sort := c.QueryParam("_sort")
-		_order := strings.ToUpper(c.QueryParam("_order")) // ASC / DESC
-		if _order != "ASC" && _order != "DESC" {
-			_order = "ASC"
-		}
-
-		// === Фильтрация ==============================================
-		query := db.Model((*T)(nil))
-
-		// 🔹 Глобальный поиск: q=...
 		q := c.QueryParam("q")
 		if q != "" {
 			query = applyGlobalSearch[T](query, q)
 		}
 
-		// 🔹 Поля: field_eq, field_ne, field_like, field_lt, field_gt, field_in
-		for key, vals := range c.QueryParams() {
+		queryParams := c.QueryParams()
+		for key, vals := range queryParams {
 			if len(vals) == 0 {
 				continue
 			}
 			val := vals[0]
 
-			switch {
-			case strings.HasSuffix(key, "_eq"):
-				field := strings.TrimSuffix(key, "_eq")
-				if isIdentifier(field) {
-					query = query.Where(field+" = ?", val)
-				}
-			case strings.HasSuffix(key, "_ne"):
-				field := strings.TrimSuffix(key, "_ne")
-				if isIdentifier(field) {
-					query = query.Where(field+" != ?", val)
-				}
-			case strings.HasSuffix(key, "_lt"):
-				field := strings.TrimSuffix(key, "_lt")
-				if isIdentifier(field) {
-					if n, err := strconv.Atoi(val); err == nil {
-						query = query.Where(field+" < ?", n)
-					}
-				}
-			case strings.HasSuffix(key, "_gt"):
-				field := strings.TrimSuffix(key, "_gt")
-				if isIdentifier(field) {
-					if n, err := strconv.Atoi(val); err == nil {
-						query = query.Where(field+" > ?", n)
-					}
-				}
-			case strings.HasSuffix(key, "_like"):
-				field := strings.TrimSuffix(key, "_like")
-				if isIdentifier(field) {
-					query = query.Where(field+" ILIKE ?", "%"+val+"%")
-				}
-			case strings.HasSuffix(key, "_in"):
-				field := strings.TrimSuffix(key, "_in")
-				if isIdentifier(field) {
-					// simple-rest ожидает: field_in=1,2,3
-					parts := strings.Split(val, ",")
-					if len(parts) > 0 {
-						query = query.Where(field+" IN ?", parts)
-					}
-				}
+			if key == "_start" || key == "_end" || key == "_sort" || key == "_order" || key == "q" || key == "id" {
+				continue
+			}
+
+			if isIdentifier(key) {
+				query = query.Where(fmt.Sprintf("%s = ?", key), val)
 			}
 		}
 
-		// === Сортировка ==============================================
+		_sort := c.QueryParam("_sort")
+		_order := strings.ToUpper(c.QueryParam("_order"))
 		if _sort != "" && isIdentifier(_sort) {
-			query = query.Order(_sort + " " + _order)
+			if _order != "DESC" {
+				_order = "ASC"
+			}
+			query = query.Order(fmt.Sprintf("%s %s", _sort, _order))
 		} else {
-			// fallback: сортируем по ID или created_at, если есть
 			query = query.Order("id ASC")
 		}
 
-		// === Подсчёт общего числа записей ===========================
 		var total int64
 		if err := query.Count(&total).Error; err != nil {
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to count records"})
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Count error"})
 		}
 
-		// === Получение данных ========================================
-		var items []T
-		qry := query
-		if limit >= 0 {
-			qry = qry.Offset(offset).Limit(limit)
-		}
-		if err := qry.Find(&items).Error; err != nil {
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to fetch records"})
+		_startStr := c.QueryParam("_start")
+		_endStr := c.QueryParam("_end")
+
+		offset := 0
+		limit := 10
+
+		if _startStr != "" && _endStr != "" {
+			_start, _ := strconv.Atoi(_startStr)
+			_end, _ := strconv.Atoi(_endStr)
+			offset = _start
+			limit = _end - _start
+		} else if _pageStr := c.QueryParam("_page"); _pageStr != "" {
+			page, _ := strconv.Atoi(_pageStr)
+			perPage, _ := strconv.Atoi(c.QueryParam("_perPage"))
+			if perPage <= 0 {
+				perPage = 10
+			}
+			if page <= 0 {
+				page = 1
+			}
+			offset = (page - 1) * perPage
+			limit = perPage
 		}
 
-		// === Заголовок X-Total-Count (обязательно для refine) =======
-		c.Response().Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+		if err := query.Limit(limit).Offset(offset).Find(&items).Error; err != nil {
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Fetch error"})
+		}
+
+		setPaginationHeaders(c, offset, limit, total)
+
 		return c.JSON(http.StatusOK, items)
 	}
 }
 
-// applyGlobalSearch ищет `q` по всем строковым полям
+// GenericGetHandler возвращает одну запись по ID (для getOne).
+func GenericGetHandler[T any](db *gorm.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		id := c.Param("id")
+		var item T
+		if err := db.First(&item, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
+			}
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error"})
+		}
+		return c.JSON(http.StatusOK, item)
+	}
+}
+
+// GenericPostHandler создаёт новую запись (для create).
+func GenericPostHandler[T any](db *gorm.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var item T
+		if err := c.Bind(&item); err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid JSON"})
+		}
+
+		if err := db.Create(&item).Error; err != nil {
+			return handleDBError(c, err)
+		}
+
+		return c.JSON(http.StatusCreated, item)
+	}
+}
+
+// GenericPatchHandler частично обновляет запись по ID (для update),
+// принимая только изменённые поля в теле запроса.
+func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		id := c.Param("id")
+
+		var input map[string]interface{}
+		if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid JSON"})
+		}
+
+		var item T
+		if err := db.First(&item, "id = ?", id).Error; err != nil {
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
+		}
+
+		if err := db.Model(&item).Updates(input).Error; err != nil {
+			return handleDBError(c, err)
+		}
+
+		db.First(&item, "id = ?", id)
+		return c.JSON(http.StatusOK, item)
+	}
+}
+
+// GenericDeleteHandler удаляет запись по ID (для deleteOne),
+// возвращает ID удалённой записи.
+func GenericDeleteHandler[T any](db *gorm.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		id := c.Param("id")
+
+		result := db.Where("id = ?", id).Delete(new(T))
+
+		if result.Error != nil {
+			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error"})
+		}
+		if result.RowsAffected == 0 {
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
+		}
+
+		return c.JSON(http.StatusOK, echo.Map{"id": id})
+	}
+}
+
+// setPaginationHeaders устанавливает заголовки Content-Range и X-Total-Count,
+// требуемые клиентскими REST-адаптерами (например, React Admin).
+func setPaginationHeaders(c echo.Context, offset, limit int, total int64) {
+	c.Response().Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+
+	end := offset + limit
+	if end > int(total) {
+		end = int(total)
+	}
+	if end < offset {
+		end = offset
+	}
+
+	contentRange := fmt.Sprintf("resources %d-%d/%d", offset, end, total)
+	c.Response().Header().Set("Content-Range", contentRange)
+	c.Response().Header().Set("Access-Control-Expose-Headers", "Content-Range, X-Total-Count")
+}
+
+// handleDBError преобразует ошибки GORM в HTTP-ответы с понятными статусами.
+func handleDBError(c echo.Context, err error) error {
+	if strings.Contains(strings.ToLower(err.Error()), "unique") ||
+		strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+		return c.JSON(http.StatusConflict, echo.Map{"error": "Unique constraint violation"})
+	}
+	return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+}
+
+// applyGlobalSearch добавляет условие поиска (ILIKE) по всем строковым полям модели.
 func applyGlobalSearch[T any](query *gorm.DB, q string) *gorm.DB {
 	var sample T
 	t := reflect.TypeOf(sample)
+
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 
 	var conditions []string
 	var values []interface{}
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		ft := field.Type
+		isString := field.Type.Kind() == reflect.String
 
-		// Поддержка *string и string
-		if ft.Kind() == reflect.String || (ft.Kind() == reflect.Ptr && ft.Elem().Kind() == reflect.String) {
+		if isString {
 			colName := getColumnName(field)
-			conditions = append(conditions, colName+" ILIKE ?")
+			if colName == "id" || colName == "-" {
+				continue
+			}
+			conditions = append(conditions, fmt.Sprintf("%s ILIKE ?", colName))
 			values = append(values, "%"+q+"%")
 		}
 	}
@@ -152,111 +238,25 @@ func applyGlobalSearch[T any](query *gorm.DB, q string) *gorm.DB {
 	return query
 }
 
-// getColumnName извлекает имя колонки из тега gorm или имени поля
+// getColumnName извлекает имя столбца из тегов GORM/JSON или преобразует имя поля в snake_case.
 func getColumnName(field reflect.StructField) string {
-	colName := field.Tag.Get("gorm")
-	if colName == "" {
-		return field.Name
+	gormTag := field.Tag.Get("gorm")
+	if gormTag != "" {
+		parts := strings.Split(gormTag, ";")
+		for _, part := range parts {
+			if strings.HasPrefix(part, "column:") {
+				return strings.TrimPrefix(part, "column:")
+			}
+		}
 	}
-	// Убираем параметры вроде `type:uuid`, `primaryKey`, `->`
-	if idx := strings.IndexAny(colName, " ;"); idx > 0 {
-		colName = colName[:idx]
+	jsonTag := field.Tag.Get("json")
+	if jsonTag != "" && jsonTag != "-" {
+		return strings.Split(jsonTag, ",")[0]
 	}
-	return colName
+	return toSnakeCase(field.Name)
 }
 
-// GenericGetHandler получает одну запись по ID (UUID)
-func GenericGetHandler[T any](db *gorm.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		idStr := c.Param("id") // ← важно: refine передаёт :id, не :uuid
-		if _, err := uuid.Parse(idStr); err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid UUID format"})
-		}
-
-		item, err := FindByUUID[T](db, idStr)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
-			}
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error"})
-		}
-
-		return c.JSON(http.StatusOK, item)
-	}
-}
-
-// GenericPostHandler создаёт запись (refine → POST /resource)
-func GenericPostHandler[T any](db *gorm.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		var item T
-		if err := c.Bind(&item); err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid JSON"})
-		}
-
-		if err := SafeCreate(db, &item); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "unique") ||
-				strings.Contains(strings.ToLower(err.Error()), "duplicate") {
-				return c.JSON(http.StatusConflict, echo.Map{"error": "Unique constraint violation"})
-			}
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to create record"})
-		}
-
-		return c.JSON(http.StatusCreated, item)
-	}
-}
-
-// GenericPatchHandler — частичное обновление (refine → PATCH /resource/:id)
-func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		idStr := c.Param("id")
-		if _, err := uuid.Parse(idStr); err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid UUID"})
-		}
-
-		var updates map[string]interface{}
-		if err := json.NewDecoder(c.Request().Body).Decode(&updates); err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid JSON"})
-		}
-
-		if err := SafeUpdate[T](db, idStr, updates); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
-			}
-			if strings.Contains(strings.ToLower(err.Error()), "unique") {
-				return c.JSON(http.StatusConflict, echo.Map{"error": "Unique constraint violation"})
-			}
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Update failed"})
-		}
-
-		updated, err := FindByUUID[T](db, idStr)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Failed to fetch updated record"})
-		}
-
-		return c.JSON(http.StatusOK, updated)
-	}
-}
-
-// GenericDeleteHandler — удаление (refine → DELETE /resource/:id)
-func GenericDeleteHandler[T any](db *gorm.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		idStr := c.Param("id")
-		if _, err := uuid.Parse(idStr); err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid UUID"})
-		}
-
-		if err := DeleteByUUID[T](db, idStr); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
-			}
-			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error: " + err.Error()})
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	}
-}
-
-// isIdentifier проверяет, что строка — валидное имя столбца
+// isIdentifier проверяет, является ли строка допустимым именем поля/столбца (идентификатором).
 func isIdentifier(s string) bool {
 	if s == "" {
 		return false
@@ -267,4 +267,13 @@ func isIdentifier(s string) bool {
 		}
 	}
 	return true
+}
+
+// toSnakeCase конвертирует CamelCase в snake_case.
+func toSnakeCase(str string) string {
+	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
+	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
+	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
+	return strings.ToLower(snake)
 }

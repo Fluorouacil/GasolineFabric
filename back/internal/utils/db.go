@@ -4,7 +4,8 @@ import (
 	"GasolineFabric/internal/models"
 	"fmt"
 	"reflect"
-	"time"
+
+	"GasolineFabric/pkg/migrations"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -20,10 +21,7 @@ func SafeCreate[T any](db *gorm.DB, item *T) error {
 
 	baseField := v.FieldByName("BaseModel")
 	if baseField.IsValid() && baseField.Kind() == reflect.Struct {
-		setField(baseField, "UUID", uuid.UUID{})
-		setField(baseField, "CreatedAt", time.Time{})
-		setField(baseField, "UpdatedAt", time.Time{})
-		setField(baseField, "DeletedAt", gorm.DeletedAt{})
+		setField(baseField, "ID", uuid.UUID{})
 	}
 
 	return db.Create(item).Error
@@ -36,7 +34,7 @@ func DeleteByUUID[T any](db *gorm.DB, uuidStr string) error {
 	}
 
 	var item T
-	if err := db.Where("uuid = ?", parsedUUID).First(&item).Error; err != nil {
+	if err := db.Where("id = ?", parsedUUID).First(&item).Error; err != nil {
 		return err
 	}
 
@@ -62,7 +60,7 @@ func FindByUUID[T any](db *gorm.DB, uuidStr string) (*T, error) {
 	}
 
 	var item T
-	result := db.Where("uuid = ?", parsedUUID).First(&item)
+	result := db.Where("id = ?", parsedUUID).First(&item)
 	return &item, result.Error
 }
 
@@ -74,7 +72,7 @@ func FindByUUIDWithPreload[T any](db *gorm.DB, uuidStr string, preloadFields ...
 	}
 
 	var item T
-	query := db.Where("uuid = ?", parsedUUID)
+	query := db.Where("id = ?", parsedUUID)
 
 	// Применяем Preload для каждого указанного поля
 	for _, field := range preloadFields {
@@ -93,11 +91,11 @@ func SafeUpdate[T any](db *gorm.DB, uuidStr string, updates map[string]interface
 	}
 
 	var existing T
-	if err := db.Where("uuid = ?", parsedUUID).First(&existing).Error; err != nil {
+	if err := db.Where("id = ?", parsedUUID).First(&existing).Error; err != nil {
 		return err
 	}
 
-	protectedFields := []string{"UUID", "CreatedAt", "DeletedAt", "uuid", "created_at", "deleted_at"}
+	protectedFields := []string{"ID", "CreatedAt", "DeletedAt", "id", "created_at", "deleted_at"}
 	for _, field := range protectedFields {
 		delete(updates, field)
 	}
@@ -109,34 +107,6 @@ func SafeUpdate[T any](db *gorm.DB, uuidStr string, updates map[string]interface
 	return nil
 }
 
-// extractUUID извлекает UUID из структуры, содержащей BaseModel
-func extractUUID(item interface{}) (uuid.UUID, error) {
-	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return uuid.Nil, gorm.ErrInvalidValue
-	}
-
-	baseField := v.FieldByName("BaseModel")
-	if !baseField.IsValid() || baseField.Kind() != reflect.Struct {
-		return uuid.Nil, gorm.ErrInvalidValue
-	}
-
-	uuidField := baseField.FieldByName("UUID")
-	if !uuidField.IsValid() || !uuidField.Type().AssignableTo(reflect.TypeOf(uuid.UUID{})) {
-		return uuid.Nil, gorm.ErrInvalidValue
-	}
-
-	uuidVal, ok := uuidField.Interface().(uuid.UUID)
-	if !ok {
-		return uuid.Nil, gorm.ErrInvalidValue
-	}
-
-	return uuidVal, nil
-}
-
 // InitDB инициализирует базу данных
 func InitDB() *gorm.DB {
 	db, err := gorm.Open(postgres.Open("host=localhost user=GasolineAdmin password=admin dbname=GasolineFabric TimeZone=Europe/Samara"))
@@ -144,7 +114,9 @@ func InitDB() *gorm.DB {
 		fmt.Println(err)
 	}
 
-	db.AutoMigrate(&models.BaseModel{}, &models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{}, &models.EquipmentStatus{})
+	db.AutoMigrate(&models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{}, &models.EquipmentStatus{})
+
+	migrations.ApplySQLMigrations(db, "../migrations", false)
 
 	return db
 }
