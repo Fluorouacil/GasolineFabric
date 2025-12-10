@@ -1,6 +1,3 @@
--- =============================================
--- 1. DEPARTMENTS (Подразделения)
--- =============================================
 INSERT INTO departments (id, name, code, adress, created_at, updated_at) VALUES
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Отдел метрологии', 'MTR-001', 'г. Москва, ул. Ленина, д. 1, каб. 101', NOW(), NOW()),
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'Производственный цех №1', 'PCH-001', 'г. Москва, ул. Ленина, д. 1, корп. 2', NOW(), NOW()),
@@ -13,9 +10,6 @@ INSERT INTO departments (id, name, code, adress, created_at, updated_at) VALUES
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a09', 'Испытательная лаборатория', 'ISP-001', 'г. Москва, ул. Ленина, д. 1, каб. 501', NOW(), NOW()),
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a10', 'Отдел главного технолога', 'OGT-001', 'г. Москва, ул. Ленина, д. 1, каб. 601', NOW(), NOW());
 
--- =============================================
--- 2. PERSONS (Физические лица)
--- =============================================
 INSERT INTO persons (id, last_name, first_name, middle_name, birth_date, phone, email, created_at, updated_at) VALUES
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Иванов', 'Иван', 'Иванович', '1985-03-15', '+7-999-111-11-11', 'ivanov@company.ru', NOW(), NOW()),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'Петров', 'Пётр', 'Петрович', '1990-07-22', '+7-999-222-22-22', 'petrov@company.ru', NOW(), NOW()),
@@ -30,9 +24,7 @@ INSERT INTO persons (id, last_name, first_name, middle_name, birth_date, phone, 
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Попова', 'Наталья', 'Игоревна', '1991-02-12', '+7-999-123-45-67', 'popova@company.ru', NOW(), NOW()),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'Васильев', 'Владимир', 'Олегович', '1986-10-20', '+7-999-234-56-78', 'vasiliev@company.ru', NOW(), NOW());
 
--- =============================================
--- 3. EMPLOYEES (Сотрудники)
--- =============================================
+
 INSERT INTO employees (id, person_uuid, department_uuid, position, hire_date, status, created_at, updated_at) VALUES
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Начальник отдела метрологии', '2015-01-15', 'active', NOW(), NOW()),
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Инженер-метролог', '2018-03-20', 'active', NOW(), NOW()),
@@ -47,9 +39,6 @@ INSERT INTO employees (id, person_uuid, department_uuid, position, hire_date, st
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a09', 'Инженер-испытатель', '2019-07-25', 'active', NOW(), NOW()),
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Техник-метролог', '2023-03-01', 'active', NOW(), NOW());
 
--- =============================================
--- 4. EQUIPMENT_TYPES (Типы оборудования)
--- =============================================
 INSERT INTO equipment_types (id, name, verification_interval_months, description, measurable_units, created_at, updated_at) VALUES
 ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Мультиметр цифровой', 12, 'Прибор для измерения напряжения, тока и сопротивления', '{"В", "А", "Ом"}', NOW(), NOW()),
 ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'Манометр', 12, 'Прибор для измерения давления', '{"Па", "кПа", "МПа", "бар"}', NOW(), NOW()),
@@ -64,9 +53,6 @@ INSERT INTO equipment_types (id, name, verification_interval_months, description
 ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Люксметр', 12, 'Прибор для измерения освещённости', '{"лк"}', NOW(), NOW()),
 ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'Шумомер', 24, 'Прибор для измерения уровня шума', '{"дБ"}', NOW(), NOW());
 
--- =============================================
--- 5. EQUIPMENT (Оборудование)
--- =============================================
 INSERT INTO equipment (id, serial_number, equipment_type_uuid, accuracy_class, purchase_date, cost, lifespan_years, created_at, updated_at) VALUES
 -- Мультиметры
 ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'MM-2023-001', 'd0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 0.5, '2023-01-15', 15000.00, 10, NOW(), NOW()),
@@ -103,9 +89,6 @@ INSERT INTO equipment (id, serial_number, equipment_type_uuid, accuracy_class, p
 -- Шумомеры
 ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'SH-2021-001', 'd0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 1.0, '2021-12-01', 45000.00, 10, NOW(), NOW());
 
--- =============================================
--- 6. EQUIPMENT_STATUSES (Статусы оборудования)
--- =============================================
 INSERT INTO equipment_statuses (id, equipment_uuid, status, department_uuid, created_at, updated_at) VALUES
 ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'in_use', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', NOW(), NOW()),
 ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'in_use', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', NOW(), NOW()),
@@ -130,9 +113,6 @@ INSERT INTO equipment_statuses (id, equipment_uuid, status, department_uuid, cre
 ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a21', 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a21', 'in_use', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a05', NOW(), NOW()),
 ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'in_use', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a09', NOW(), NOW());
 
--- =============================================
--- 7. VERIFICATION_HISTORIES (История поверок)
--- =============================================
 INSERT INTO verification_histories (id, equipment_uuid, verification_date, result, certificate_number, verified_by_employee_uuid, notes, created_at, updated_at) VALUES
 -- Мультиметр MM-2023-001 (поверен при покупке)
 ('10eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', '2023-01-15', 'passed', 'CERT-2023-0001', 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Первичная поверка при покупке', NOW(), NOW()),

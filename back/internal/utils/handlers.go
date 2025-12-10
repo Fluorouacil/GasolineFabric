@@ -14,13 +14,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// GenericListHandler обрабатывает запросы getList (с пагинацией, фильтрацией, сортировкой)
-// и getMany (по переданным query-параметрам ?id=1&id=2&id=3).
+// GenericListHandler обрабатывает запросы getList и getMany с автоматическим Preload
 func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var items []T
 		model := new(T)
-		query := db.Model(model)
+
+		query := applyPreloads[T](db.Model(model))
 
 		ids := c.QueryParams()["id"]
 		if len(ids) > 0 {
@@ -28,9 +28,9 @@ func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 				return c.JSON(http.StatusInternalServerError, echo.Map{"error": "DB error"})
 			}
 
-			total := int64(len(items))
-			setPaginationHeaders(c, 0, int(total), total)
-			return c.JSON(http.StatusOK, items)
+			return c.JSON(http.StatusOK, echo.Map{
+				"data": items,
+			})
 		}
 
 		q := c.QueryParam("q")
@@ -45,7 +45,7 @@ func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 			}
 			val := vals[0]
 
-			if key == "_start" || key == "_end" || key == "_sort" || key == "_order" || key == "q" || key == "id" {
+			if key == "_start" || key == "_end" || key == "_sort" || key == "_order" || key == "q" || key == "id" || key == "_page" || key == "_perPage" {
 				continue
 			}
 
@@ -66,7 +66,7 @@ func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 		}
 
 		var total int64
-		if err := query.Count(&total).Error; err != nil {
+		if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 			return c.JSON(http.StatusInternalServerError, echo.Map{"error": "Count error"})
 		}
 
@@ -104,12 +104,15 @@ func GenericListHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	}
 }
 
-// GenericGetHandler возвращает одну запись по ID (для getOne).
+// GenericGetHandler возвращает одну запись по ID с Preload.
 func GenericGetHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		id := c.Param("id")
 		var item T
-		if err := db.First(&item, "id = ?", id).Error; err != nil {
+
+		query := applyPreloads[T](db)
+
+		if err := query.First(&item, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
 			}
@@ -119,7 +122,7 @@ func GenericGetHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	}
 }
 
-// GenericPostHandler создаёт новую запись (для create).
+// GenericPostHandler создаёт новую запись и возвращает её с заполненными связями.
 func GenericPostHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var item T
@@ -131,12 +134,25 @@ func GenericPostHandler[T any](db *gorm.DB) echo.HandlerFunc {
 			return handleDBError(c, err)
 		}
 
+		val := reflect.ValueOf(item)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+		idField := val.FieldByName("ID")
+
+		if idField.IsValid() {
+			var reloadedItem T
+			query := applyPreloads[T](db)
+			if err := query.First(&reloadedItem, "id = ?", idField.Interface()).Error; err == nil {
+				return c.JSON(http.StatusCreated, reloadedItem)
+			}
+		}
+
 		return c.JSON(http.StatusCreated, item)
 	}
 }
 
-// GenericPatchHandler частично обновляет запись по ID (для update),
-// принимая только изменённые поля в теле запроса.
+// GenericPatchHandler обновляет запись и возвращает полную версию со связями.
 func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		id := c.Param("id")
@@ -155,13 +171,15 @@ func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
 			return handleDBError(c, err)
 		}
 
-		db.First(&item, "id = ?", id)
-		return c.JSON(http.StatusOK, item)
+		var reloadedItem T
+		query := applyPreloads[T](db)
+		query.First(&reloadedItem, "id = ?", id)
+
+		return c.JSON(http.StatusOK, reloadedItem)
 	}
 }
 
-// GenericDeleteHandler удаляет запись по ID (для deleteOne),
-// возвращает ID удалённой записи.
+// GenericDeleteHandler удаляет запись (без изменений, preload тут не нужен).
 func GenericDeleteHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		id := c.Param("id")
@@ -179,8 +197,60 @@ func GenericDeleteHandler[T any](db *gorm.DB) echo.HandlerFunc {
 	}
 }
 
-// setPaginationHeaders устанавливает заголовки Content-Range и X-Total-Count,
-// требуемые клиентскими REST-адаптерами (например, React Admin).
+// applyPreloads автоматически добавляет .Preload() для всех структурных полей модели.
+func applyPreloads[T any](db *gorm.DB) *gorm.DB {
+	var model T
+	t := reflect.TypeOf(model)
+
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fieldType := field.Type
+
+		if field.PkgPath != "" {
+			continue
+		}
+
+		if field.Anonymous {
+			continue
+		}
+
+		targetType := fieldType
+		if targetType.Kind() == reflect.Slice {
+			targetType = targetType.Elem()
+		}
+		if targetType.Kind() == reflect.Ptr {
+			targetType = targetType.Elem()
+		}
+
+		if targetType.Kind() == reflect.Struct {
+			if targetType.PkgPath() == "time" {
+				continue
+			}
+			if strings.Contains(strings.ToLower(targetType.PkgPath()), "uuid") {
+				continue
+			}
+
+			gormTag := field.Tag.Get("gorm")
+
+			if gormTag == "-" {
+				continue
+			}
+
+			if strings.Contains(strings.ToLower(gormTag), "embedded") {
+				continue
+			}
+
+			db = db.Preload(field.Name)
+		}
+	}
+
+	return db
+}
+
 func setPaginationHeaders(c echo.Context, offset, limit int, total int64) {
 	c.Response().Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
 
@@ -197,16 +267,17 @@ func setPaginationHeaders(c echo.Context, offset, limit int, total int64) {
 	c.Response().Header().Set("Access-Control-Expose-Headers", "Content-Range, X-Total-Count")
 }
 
-// handleDBError преобразует ошибки GORM в HTTP-ответы с понятными статусами.
 func handleDBError(c echo.Context, err error) error {
 	if strings.Contains(strings.ToLower(err.Error()), "unique") ||
 		strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 		return c.JSON(http.StatusConflict, echo.Map{"error": "Unique constraint violation"})
 	}
+	if strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid relation ID"})
+	}
 	return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 }
 
-// applyGlobalSearch добавляет условие поиска (ILIKE) по всем строковым полям модели.
 func applyGlobalSearch[T any](query *gorm.DB, q string) *gorm.DB {
 	var sample T
 	t := reflect.TypeOf(sample)
@@ -238,7 +309,6 @@ func applyGlobalSearch[T any](query *gorm.DB, q string) *gorm.DB {
 	return query
 }
 
-// getColumnName извлекает имя столбца из тегов GORM/JSON или преобразует имя поля в snake_case.
 func getColumnName(field reflect.StructField) string {
 	gormTag := field.Tag.Get("gorm")
 	if gormTag != "" {
@@ -256,7 +326,6 @@ func getColumnName(field reflect.StructField) string {
 	return toSnakeCase(field.Name)
 }
 
-// isIdentifier проверяет, является ли строка допустимым именем поля/столбца (идентификатором).
 func isIdentifier(s string) bool {
 	if s == "" {
 		return false
@@ -269,7 +338,6 @@ func isIdentifier(s string) bool {
 	return true
 }
 
-// toSnakeCase конвертирует CamelCase в snake_case.
 func toSnakeCase(str string) string {
 	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
 	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")

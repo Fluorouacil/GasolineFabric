@@ -18,8 +18,6 @@ func NewReportService(db *gorm.DB) *ReportService {
 	return &ReportService{db: db}
 }
 
-// ========== Вспомогательные структуры ==========
-
 type equipmentWithDetails struct {
 	models.Equipment
 	EquipmentTypeName          string    `gorm:"column:equipment_type_name"`
@@ -31,7 +29,7 @@ type equipmentWithDetails struct {
 type lastVerification struct {
 	EquipmentUUID              uuid.UUID
 	VerificationDate           time.Time
-	VerificationIntervalMonths int // Интервал поверки из типа оборудования
+	VerificationIntervalMonths int
 	VerifierLastName           string
 	VerifierFirstName          string
 	VerifierMiddleName         string
@@ -41,8 +39,6 @@ type lastVerification struct {
 func (lv lastVerification) NextVerificationDate() time.Time {
 	return lv.VerificationDate.AddDate(0, lv.VerificationIntervalMonths, 0)
 }
-
-// ========== Поверки ==========
 
 // GetVerificationsDueThisMonth - приборы для поверки в этом месяце
 func (s *ReportService) GetVerificationsDueThisMonth(filters ReportFilters) ([]VerificationDueReport, error) {
@@ -55,7 +51,6 @@ func (s *ReportService) GetVerificationsDueThisMonth(filters ReportFilters) ([]V
 
 // GetVerificationsDueInPeriod - приборы для поверки в периоде
 func (s *ReportService) GetVerificationsDueInPeriod(from, to time.Time, filters ReportFilters) ([]VerificationDueReport, error) {
-	// Шаг 1: Получаем всё оборудование с деталями
 	var equipmentList []equipmentWithDetails
 
 	query := s.db.Model(&models.Equipment{}).
@@ -86,9 +81,8 @@ func (s *ReportService) GetVerificationsDueInPeriod(from, to time.Time, filters 
 		return []VerificationDueReport{}, nil
 	}
 
-	// Шаг 2: Получаем последние поверки
 	equipmentIDs := make([]uuid.UUID, len(equipmentList))
-	equipmentIntervals := make(map[uuid.UUID]int) // ID оборудования -> интервал поверки
+	equipmentIntervals := make(map[uuid.UUID]int)
 
 	for i, eq := range equipmentList {
 		equipmentIDs[i] = eq.ID
@@ -97,7 +91,6 @@ func (s *ReportService) GetVerificationsDueInPeriod(from, to time.Time, filters 
 
 	lastVerifications := s.getLastVerifications(equipmentIDs, equipmentIntervals)
 
-	// Шаг 3: Формируем отчёт
 	now := time.Now()
 	var results []VerificationDueReport
 
@@ -108,15 +101,13 @@ func (s *ReportService) GetVerificationsDueInPeriod(from, to time.Time, filters 
 
 		if lv, ok := lastVerifications[eq.ID]; ok {
 			lastVerificationDate = lv.VerificationDate
-			nextVerification = lv.NextVerificationDate() // Вычисляем на лету
+			nextVerification = lv.NextVerificationDate()
 			responsiblePerson = buildFullName(lv.VerifierLastName, lv.VerifierFirstName, lv.VerifierMiddleName)
 		} else {
-			// Если поверок не было, считаем от даты покупки
 			lastVerificationDate = eq.PurchaseDate
 			nextVerification = eq.PurchaseDate.AddDate(0, eq.VerificationIntervalMonths, 0)
 		}
 
-		// Фильтруем по периоду
 		if nextVerification.Before(from) || nextVerification.After(to) {
 			continue
 		}
@@ -147,7 +138,6 @@ func (s *ReportService) getLastVerifications(equipmentIDs []uuid.UUID, intervals
 		return result
 	}
 
-	// Подзапрос для максимальной даты поверки
 	type maxDateResult struct {
 		EquipmentUUID uuid.UUID `gorm:"column:equipment_uuid"`
 		MaxDate       time.Time `gorm:"column:max_date"`
@@ -164,7 +154,6 @@ func (s *ReportService) getLastVerifications(equipmentIDs []uuid.UUID, intervals
 		return result
 	}
 
-	// Получаем полные данные последних поверок
 	for _, md := range maxDates {
 		var vh models.VerificationHistory
 		err := s.db.
@@ -177,10 +166,9 @@ func (s *ReportService) getLastVerifications(equipmentIDs []uuid.UUID, intervals
 			lv := lastVerification{
 				EquipmentUUID:              vh.EquipmentUUID,
 				VerificationDate:           vh.VerificationDate,
-				VerificationIntervalMonths: intervals[vh.EquipmentUUID], // Берём интервал из мапы
+				VerificationIntervalMonths: intervals[vh.EquipmentUUID],
 			}
 
-			// Безопасная проверка вложенных структур
 			if vh.VerifiedByEmployee.ID != uuid.Nil && vh.VerifiedByEmployee.Person.ID != uuid.Nil {
 				lv.VerifierLastName = vh.VerifiedByEmployee.Person.LastName
 				lv.VerifierFirstName = vh.VerifiedByEmployee.Person.FirstName
@@ -215,8 +203,6 @@ func buildFullName(lastName, firstName, middleName string) string {
 	}
 	return name
 }
-
-// ========== Амортизация ==========
 
 func (s *ReportService) GetDepreciationReport(filters ReportFilters) ([]DepreciationReport, error) {
 	var equipmentList []equipmentWithDetails
@@ -256,28 +242,22 @@ func (s *ReportService) GetDepreciationReport(filters ReportFilters) ([]Deprecia
 			LifespanYears:     eq.LifespanYears,
 		}
 
-		// Расчёт амортизации (линейный метод)
 		r.YearsInService = now.Sub(eq.PurchaseDate).Hours() / 24 / 365.25
 		r.YearsInService = math.Round(r.YearsInService*100) / 100
 
-		// Годовая амортизация = Стоимость / Срок службы
 		if eq.LifespanYears > 0 {
 			r.AnnualDepreciation = eq.Cost / float64(eq.LifespanYears)
 		}
 		r.MonthlyDepreciation = r.AnnualDepreciation / 12
 
-		// Накопленная амортизация (не больше первоначальной стоимости)
 		r.AccumulatedDepr = math.Min(r.AnnualDepreciation*r.YearsInService, eq.Cost)
 		r.AccumulatedDepr = math.Round(r.AccumulatedDepr*100) / 100
 
-		// Остаточная стоимость
 		r.ResidualValue = math.Max(eq.Cost-r.AccumulatedDepr, 0)
 		r.ResidualValue = math.Round(r.ResidualValue*100) / 100
 
-		// База для налога с амортизации
 		r.DepreciationTaxBase = r.ResidualValue
 
-		// Процент износа
 		if eq.Cost > 0 {
 			r.DepreciationPercent = (r.AccumulatedDepr / eq.Cost) * 100
 			r.DepreciationPercent = math.Round(r.DepreciationPercent*100) / 100
@@ -289,14 +269,11 @@ func (s *ReportService) GetDepreciationReport(filters ReportFilters) ([]Deprecia
 	return results, nil
 }
 
-// ========== Сводный отчёт ==========
-
 func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSummaryReport, error) {
 	report := &EquipmentSummaryReport{
 		ByStatus: make(map[string]int),
 	}
 
-	// Общее количество и стоимость
 	type statsResult struct {
 		TotalCount int     `gorm:"column:total_count"`
 		TotalValue float64 `gorm:"column:total_value"`
@@ -315,7 +292,6 @@ func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSu
 	report.TotalCount = stats.TotalCount
 	report.TotalValue = stats.TotalValue
 
-	// По статусам
 	type statusCount struct {
 		Status string `gorm:"column:status"`
 		Count  int    `gorm:"column:count"`
@@ -336,7 +312,6 @@ func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSu
 		report.ByStatus[sc.Status] = sc.Count
 	}
 
-	// По подразделениям
 	s.db.Model(&models.EquipmentStatus{}).
 		Select(`
 			departments.id as department_id,
@@ -349,7 +324,6 @@ func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSu
 		Group("departments.id, departments.name").
 		Find(&report.ByDepartment)
 
-	// По типам
 	s.db.Model(&models.Equipment{}).
 		Select(`
 			equipment_types.id as type_id,
@@ -361,7 +335,6 @@ func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSu
 		Group("equipment_types.id, equipment_types.name").
 		Find(&report.ByType)
 
-	// Рассчитываем остаточную стоимость
 	depreciation, err := s.GetDepreciationReport(filters)
 	if err != nil {
 		return nil, err
@@ -377,13 +350,11 @@ func (s *ReportService) GetEquipmentSummary(filters ReportFilters) (*EquipmentSu
 		report.ByDepartment[i].ResidualValue = deptResidual[report.ByDepartment[i].DepartmentName]
 	}
 
-	// Статистика по поверкам
 	report.VerificationStats = s.calculateVerificationStats(filters)
 
 	return report, nil
 }
 
-// calculateVerificationStats - считает статистику по поверкам
 func (s *ReportService) calculateVerificationStats(filters ReportFilters) VerificationStats {
 	var stats VerificationStats
 
@@ -392,10 +363,9 @@ func (s *ReportService) calculateVerificationStats(filters ReportFilters) Verifi
 	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Nanosecond)
 	endOfNextMonth := startOfMonth.AddDate(0, 2, 0).Add(-time.Nanosecond)
 
-	// Получаем все поверки за большой период для анализа
 	allFilters := filters
 	verifications, err := s.GetVerificationsDueInPeriod(
-		now.AddDate(-1, 0, 0), // год назад (для просроченных)
+		now.AddDate(-1, 0, 0),
 		endOfNextMonth,
 		allFilters,
 	)
@@ -407,14 +377,13 @@ func (s *ReportService) calculateVerificationStats(filters ReportFilters) Verifi
 		switch {
 		case v.NextVerification.Before(now):
 			stats.OverdueCount++
-		case !v.NextVerification.After(endOfMonth): // до конца месяца
+		case !v.NextVerification.After(endOfMonth):
 			stats.DueThisMonth++
-		case !v.NextVerification.After(endOfNextMonth): // до конца следующего месяца
+		case !v.NextVerification.After(endOfNextMonth):
 			stats.DueNextMonth++
 		}
 	}
 
-	// Количество проведённых поверок (за текущий год)
 	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
 	var verifiedCount int64
 
@@ -432,8 +401,6 @@ func (s *ReportService) calculateVerificationStats(filters ReportFilters) Verifi
 
 	return stats
 }
-
-// ========== Отчёт по сотрудникам ==========
 
 func (s *ReportService) GetEmployeeReport(filters ReportFilters) ([]EmployeeReport, error) {
 	var results []EmployeeReport
@@ -481,8 +448,6 @@ func (s *ReportService) GetEmployeeReport(filters ReportFilters) ([]EmployeeRepo
 	return results, nil
 }
 
-// ========== Отчёт по подразделениям ==========
-
 func (s *ReportService) GetDepartmentReport(filters ReportFilters) ([]DepartmentReport, error) {
 	var departments []models.Department
 
@@ -506,7 +471,6 @@ func (s *ReportService) GetDepartmentReport(filters ReportFilters) ([]Department
 			EquipmentByStatus: make(map[string]int),
 		}
 
-		// Количество оборудования
 		var eqCount int64
 		s.db.Model(&models.EquipmentStatus{}).
 			Joins("JOIN equipment ON equipment.id = equipment_statuses.equipment_uuid").
@@ -514,14 +478,12 @@ func (s *ReportService) GetDepartmentReport(filters ReportFilters) ([]Department
 			Count(&eqCount)
 		report.EquipmentCount = int(eqCount)
 
-		// Количество сотрудников
 		var empCount int64
 		s.db.Model(&models.Employee{}).
 			Where("department_uuid = ? AND status = ?", dept.ID, "active").
 			Count(&empCount)
 		report.EmployeeCount = int(empCount)
 
-		// Общая стоимость
 		var totalValue float64
 		s.db.Model(&models.Equipment{}).
 			Select("COALESCE(SUM(cost), 0)").
@@ -530,7 +492,6 @@ func (s *ReportService) GetDepartmentReport(filters ReportFilters) ([]Department
 			Scan(&totalValue)
 		report.TotalEquipmentValue = totalValue
 
-		// По статусам
 		type statusCount struct {
 			Status string `gorm:"column:status"`
 			Count  int    `gorm:"column:count"`
@@ -547,7 +508,6 @@ func (s *ReportService) GetDepartmentReport(filters ReportFilters) ([]Department
 			report.EquipmentByStatus[sc.Status] = sc.Count
 		}
 
-		// Предстоящие поверки (30 дней)
 		now := time.Now()
 		endPeriod := now.AddDate(0, 0, 30)
 		deptID := dept.ID
