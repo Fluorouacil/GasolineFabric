@@ -38,6 +38,7 @@ export interface EquipmentType extends BaseModel {
   verification_interval_months: number;
   description?: string;
   equipment?: Equipment[];
+  measurable_units?: string[];
 }
 
 export interface Equipment extends BaseModel {

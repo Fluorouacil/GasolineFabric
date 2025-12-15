@@ -11,6 +11,7 @@ import (
 	"regexp"
 
 	"github.com/labstack/echo/v4"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -162,6 +163,8 @@ func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, echo.Map{"error": "Invalid JSON"})
 		}
 
+		convertArrayFields(input)
+
 		var item T
 		if err := db.First(&item, "id = ?", id).Error; err != nil {
 			return c.JSON(http.StatusNotFound, echo.Map{"error": "Record not found"})
@@ -176,6 +179,23 @@ func GenericPatchHandler[T any](db *gorm.DB) echo.HandlerFunc {
 		query.First(&reloadedItem, "id = ?", id)
 
 		return c.JSON(http.StatusOK, reloadedItem)
+	}
+}
+
+// convertArrayFields преобразует []interface{} в pq.StringArray
+func convertArrayFields(input map[string]interface{}) {
+	for key, value := range input {
+		if arr, ok := value.([]interface{}); ok {
+			strArr := make(pq.StringArray, len(arr))
+			for i, v := range arr {
+				if str, ok := v.(string); ok {
+					strArr[i] = str
+				} else {
+					strArr[i] = fmt.Sprintf("%v", v)
+				}
+			}
+			input[key] = strArr
+		}
 	}
 }
 
