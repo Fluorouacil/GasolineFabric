@@ -30,5 +30,5 @@ func main() {
 
 	e.Use(middleware.CORS())
 
-	e.Start(":8080")
+	e.Start("0.0.0.0:8080")
 }

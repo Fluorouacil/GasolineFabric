@@ -1,5 +1,5 @@
 // src/core/templates/ListTemplate.tsx
-import { List, useTable, DateField } from "@refinedev/antd";
+import { List, useTable, DateField, DeleteButton } from "@refinedev/antd";
 import { Table, Space, Button, Tag, Spin } from "antd";
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ interface ListTemplateProps<T> {
 export const ListTemplate = <T extends { id: UUID }>({
     config,
 }: ListTemplateProps<T>) => {
-    const { tableProps } = useTable<T>({
+    const { tableProps, pagination } = useTable<T>({
         syncWithLocation: true,
     });
 
@@ -111,6 +111,23 @@ export const ListTemplate = <T extends { id: UUID }>({
             case "money":
                 return value ? `${Number(value).toLocaleString("ru-RU")} ₽` : "—";
 
+            case "array": {
+                if (!value || !Array.isArray(value) || value.length === 0) {
+                    return "—";
+                }
+
+                const displayValue = value
+                    .map(item => {
+                        if (typeof item === "object" && item !== null) {
+                            return item.name || item.title || item.label || JSON.stringify(item);
+                        }
+                        return String(item);
+                    })
+                    .join(", ");
+
+                return displayValue;
+            }
+
             default:
                 return value ?? "—";
         }
@@ -144,6 +161,14 @@ export const ListTemplate = <T extends { id: UUID }>({
                                 <Button size="small" href={`/${config.name}/edit/${record.id}`}>
                                     Ред.
                                 </Button>
+                                <DeleteButton
+                                    size="small"
+                                    recordItemId={record.id}
+                                    resource={config.name}
+                                    confirmTitle="Удалить запись?"
+                                    confirmOkText="Да"
+                                    confirmCancelText="Нет"
+                                />
                             </Space>
                         ),
                     },

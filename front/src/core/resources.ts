@@ -6,7 +6,7 @@ import { Department, Employee, Equipment, EquipmentStatus, EquipmentType, Person
 type FieldConfig<T> = {
   name: keyof T;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'select' | 'date' | 'radio' | 'uuid-select' | "money" | "status";
+  type: 'text' | 'textarea' | 'number' | 'select' | 'date' | 'radio' | 'uuid-select' | "money" | "status" | "array";
   required?: boolean;
   options?: { value: string; label: string }[];
   resource?: string;
@@ -53,10 +53,10 @@ export function uuidSelect<T>(
   // 'equipment' → 'equipment_uuid'
   // 'employees' → 'employee_uuid' (но для verified_by используем кастомное)
   // 'verification-histories' → 'verification_history_uuid'
-  
+
   const generateFieldName = (res: string): string => {
     let normalized = res.replace(/-/g, '_');
-    
+
     if (normalized.endsWith('ies')) {
       normalized = normalized.slice(0, -3) + 'y';
     } else if (normalized.endsWith('ses')) {
@@ -64,7 +64,7 @@ export function uuidSelect<T>(
     } else if (normalized.endsWith('s') && !normalized.endsWith('ss')) {
       normalized = normalized.slice(0, -1);
     }
-    
+
     return `${normalized}_uuid`;
   };
 
@@ -74,14 +74,14 @@ export function uuidSelect<T>(
     .replace(/-/g, ' ')
     .replace(/s$/, '')
     .replace(/^\w/, c => c.toUpperCase());
-  
+
   return {
     name,
     label: generatedLabel,
     type: 'uuid-select' as const,
     resource,
-    optionLabel: typeof optionLabel === 'function' 
-      ? optionLabel 
+    optionLabel: typeof optionLabel === 'function'
+      ? optionLabel
       : String(optionLabel),
     required: options?.required ?? true,
   };
@@ -161,6 +161,11 @@ export const equipmentTypeConfig: ResourceConfig<EquipmentType> = {
       rules: [{ type: 'number', min: 1, message: 'Должно быть > 0' }],
     },
     { name: 'description', label: 'Описание', type: 'textarea' },
+    {
+      name: 'measurable_units',
+      label: 'Измеряемые величины',
+      type: 'array'
+    }
   ],
 };
 
@@ -351,29 +356,29 @@ export const verificationPeriodReportConfig: ReportConfig<VerificationDueReport>
   label: 'Отчёт по поверкам за период',
 
   requiredFilters: ['date_from', 'date_to'],
-  
+
   filters: [
-    { 
-      name: 'date_from', 
-      label: 'Дата с', 
+    {
+      name: 'date_from',
+      label: 'Дата с',
       type: 'date',
-      required: true 
+      required: true
     },
-    { 
-      name: 'date_to', 
-      label: 'Дата по', 
+    {
+      name: 'date_to',
+      label: 'Дата по',
       type: 'date',
-      required: true 
+      required: true
     },
-    { 
-      name: 'department_id', 
-      label: 'Подразделение', 
+    {
+      name: 'department_id',
+      label: 'Подразделение',
       type: 'select',
       optionsUrl: '/departments'
     },
-    { 
-      name: 'equipment_type', 
-      label: 'Тип оборудования', 
+    {
+      name: 'equipment_type',
+      label: 'Тип оборудования',
       type: 'select',
       optionsUrl: '/equipment-types'
     }
@@ -412,15 +417,15 @@ export const depreciationReportConfig: ReportConfig<DepreciationReport> = {
   ],
 
   filters: [
-    { 
-      name: 'department_id', 
-      label: 'Подразделение', 
+    {
+      name: 'department_id',
+      label: 'Подразделение',
       type: 'select',
       optionsUrl: '/departments'
     },
-    { 
-      name: 'equipment_type', 
-      label: 'Тип оборудования', 
+    {
+      name: 'equipment_type',
+      label: 'Тип оборудования',
       type: 'select',
       optionsUrl: '/equipment-types'
     }
@@ -478,9 +483,9 @@ export const employeeReportConfig: ReportConfig<EmployeeReport> = {
   ],
 
   filters: [
-    { 
-      name: 'department_id', 
-      label: 'Подразделение', 
+    {
+      name: 'department_id',
+      label: 'Подразделение',
       type: 'select',
       optionsUrl: '/departments'
     }
@@ -506,8 +511,8 @@ export const employeeReportConfig: ReportConfig<EmployeeReport> = {
       label: 'Среднее на сотрудника',
       type: 'decimal',
       span: 8,
-      compute: (data) => data.length > 0 
-        ? data.reduce((sum, r) => sum + r.verifications_count, 0) / data.length 
+      compute: (data) => data.length > 0
+        ? data.reduce((sum, r) => sum + r.verifications_count, 0) / data.length
         : 0
     }
   ]

@@ -19,13 +19,16 @@ import { useOne } from '@refinedev/core';
 export interface FieldConfig<T> {
   name: keyof T | string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'date' | 'radio' | 'uuid-select';
+  type: 'text' | 'textarea' | 'number' | 'date' | 'radio' | 'uuid-select' | 'array';
   required?: boolean;
   rules?: any[];
   options?: { label: string; value: string | number }[];
   resource?: string;
   optionLabel?: string | ((item: any) => string);
-  format?: string; 
+  format?: string;
+  placeholder?: string;
+  arrayType?: 'string' | 'number'; 
+  maxItems?: number; 
 }
 
 export interface ResourceConfig<T> {
@@ -90,7 +93,7 @@ export const FormTemplate = <T extends { id: string }>({
                       ...(field.rules || [])
                     ]}
                   >
-                    <Input />
+                    <Input placeholder={field.placeholder} />
                   </Form.Item>
                 );
 
@@ -102,7 +105,7 @@ export const FormTemplate = <T extends { id: string }>({
                     name={key}
                     rules={field.required ? [{ required: true, message: `${field.label} обязательно` }] : []}
                   >
-                    <Input.TextArea rows={3} />
+                    <Input.TextArea rows={3} placeholder={field.placeholder} />
                   </Form.Item>
                 );
 
@@ -117,7 +120,7 @@ export const FormTemplate = <T extends { id: string }>({
                       ...(field.rules || [])
                     ]}
                   >
-                    <InputNumber style={{ width: '100%' }} />
+                    <InputNumber style={{ width: '100%' }} placeholder={field.placeholder} />
                   </Form.Item>
                 );
 
@@ -138,6 +141,7 @@ export const FormTemplate = <T extends { id: string }>({
                     <DatePicker 
                       format={field.format || 'DD.MM.YYYY'} 
                       style={{ width: '100%' }} 
+                      placeholder={field.placeholder}
                     />
                   </Form.Item>
                 );
@@ -169,6 +173,14 @@ export const FormTemplate = <T extends { id: string }>({
                        formProps.form?.getFieldValue(key) || 
                        formProps.initialValues?.[key]
                     } 
+                  />
+                );
+
+              case 'array':
+                return (
+                  <ArrayField
+                    key={key}
+                    field={field}
                   />
                 );
 
@@ -242,10 +254,103 @@ const UuidSelectField = ({ field, currentValue }: UuidSelectFieldProps) => {
         options={options}
         showSearch
         allowClear
-        placeholder={`Выберите ${field.label.toLowerCase()}`}
+        placeholder={field.placeholder || `Выберите ${field.label.toLowerCase()}`}
         filterOption={(input, option) =>
           (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
         }
+      />
+    </Form.Item>
+  );
+};
+
+interface ArrayFieldProps {
+  field: FieldConfig<any>;
+}
+
+const ArrayField = ({ field }: ArrayFieldProps) => {
+  const key = field.name as string;
+  
+  const validateArrayItems = (_: any, value: string[]) => {
+    if (!value || value.length === 0) {
+      if (field.required) {
+        return Promise.reject(new Error(`${field.label} обязательно`));
+      }
+      return Promise.resolve();
+    }
+
+    if (field.maxItems && value.length > field.maxItems) {
+      return Promise.reject(new Error(`Максимум ${field.maxItems} элементов`));
+    }
+
+    if (field.arrayType === 'number') {
+      const hasInvalidNumbers = value.some(item => isNaN(Number(item)));
+      if (hasInvalidNumbers) {
+        return Promise.reject(new Error('Все значения должны быть числами'));
+      }
+    }
+
+    return Promise.resolve();
+  };
+
+  const normalizeValue = (value: string[]): (string | number)[] => {
+    if (!value) return [];
+    
+    if (field.arrayType === 'number') {
+      return value.map(item => Number(item)).filter(n => !isNaN(n));
+    }
+    
+    return value.map(item => item.trim()).filter(Boolean);
+  };
+
+  return (
+    <Form.Item
+      label={field.label}
+      name={key}
+      rules={[
+        { validator: validateArrayItems },
+        ...(field.rules || [])
+      ]}
+      normalize={normalizeValue}
+      getValueProps={(value) => ({
+        value: Array.isArray(value) ? value.map(String) : []
+      })}
+    >
+      <Select
+        mode="tags"
+        style={{ width: '100%' }}
+        placeholder={field.placeholder || `Введите значение и нажмите Enter`}
+        tokenSeparators={[',']} 
+        allowClear
+        notFoundContent={null} 
+        dropdownStyle={{ display: 'none' }} 
+        tagRender={field.arrayType === 'number' ? ({ label, closable, onClose }) => {
+          const isValid = !isNaN(Number(label));
+          return (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '0 7px',
+                marginRight: 4,
+                marginBottom: 4,
+                borderRadius: 4,
+                border: `1px solid ${isValid ? '#d9d9d9' : '#ff4d4f'}`,
+                backgroundColor: isValid ? '#fafafa' : '#fff2f0',
+                color: isValid ? 'inherit' : '#ff4d4f',
+              }}
+            >
+              {label}
+              {closable && (
+                <span
+                  onClick={onClose}
+                  style={{ marginLeft: 4, cursor: 'pointer' }}
+                >
+                  ×
+                </span>
+              )}
+            </span>
+          );
+        } : undefined}
       />
     </Form.Item>
   );

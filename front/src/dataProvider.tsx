@@ -5,20 +5,20 @@ const API_URL = "http://localhost:8080";
 
 export const dataProvider: DataProvider = {
     getList: async ({ resource, pagination, filters, sorters }) => {
-        const { current = 1, pageSize = 10 } = pagination ?? {};
-        
-        const start = (current - 1) * pageSize;
+        const { currentPage = 1, pageSize = 10 } = pagination ?? {};
+
+        const start = (currentPage - 1) * pageSize;
         const end = start + pageSize;
-        
+
         const params = new URLSearchParams();
         params.append("_start", String(start));
         params.append("_end", String(end));
-        
+
         if (sorters && sorters.length > 0) {
             params.append("_sort", sorters[0].field);
             params.append("_order", sorters[0].order);
         }
-        
+
         if (filters) {
             filters.forEach((filter: any) => {
                 if ("field" in filter && filter.value !== undefined) {
@@ -26,7 +26,7 @@ export const dataProvider: DataProvider = {
                 }
             });
         }
-        
+
         const response = await fetch(`${API_URL}/${resource}?${params}`);
         const json = await response.json();
 
@@ -34,14 +34,14 @@ export const dataProvider: DataProvider = {
             return {
                 data: json.data,
                 total: json.total || json.data.length,
-                ...json 
+                ...json
             } as any;
         }
 
         if (Array.isArray(json)) {
             const totalStr = response.headers.get("X-Total-Count");
             const total = totalStr ? parseInt(totalStr, 10) : json.length;
-            
+
             return {
                 data: json,
                 total: total,
@@ -65,7 +65,7 @@ export const dataProvider: DataProvider = {
         const params = ids.map(id => `id=${id}`).join("&");
         const response = await fetch(`${API_URL}/${resource}?${params}`);
         const json = await response.json();
-        
+
         let result: any[];
         if (json && Array.isArray(json.data)) {
             result = json.data;
