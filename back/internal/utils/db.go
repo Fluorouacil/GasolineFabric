@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"GasolineFabric/pkg/migrations"
-
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -115,8 +113,6 @@ func InitDB() *gorm.DB {
 	}
 
 	db.AutoMigrate(&models.Person{}, &models.Employee{}, &models.Equipment{}, &models.Department{}, &models.EquipmentType{}, &models.VerificationHistory{}, &models.EquipmentStatus{})
-
-	migrations.ApplySQLMigrations(db, "../migrations", false)
 
 	return db
 }

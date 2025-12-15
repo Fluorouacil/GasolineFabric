@@ -2,6 +2,8 @@ package main
 
 import (
 	"GasolineFabric/internal/utils"
+	"GasolineFabric/pkg/migrations"
+	"fmt"
 
 	"GasolineFabric/internal/api"
 
@@ -13,6 +15,11 @@ import (
 
 func main() {
 	db := utils.InitDB()
+
+	err := migrations.ApplySQLMigrations(db, "./migrations", false)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	e := echo.New()
 

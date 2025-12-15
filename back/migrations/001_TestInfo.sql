@@ -10,7 +10,7 @@ INSERT INTO departments (id, name, code, adress, created_at, updated_at) VALUES
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a09', 'Испытательная лаборатория', 'ISP-001', 'г. Москва, ул. Ленина, д. 1, каб. 501', NOW(), NOW()),
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a10', 'Отдел главного технолога', 'OGT-001', 'г. Москва, ул. Ленина, д. 1, каб. 601', NOW(), NOW());
 
-INSERT INTO persons (id, last_name, first_name, middle_name, birth_date, phone, email, created_at, updated_at) VALUES
+INSERT INTO people (id, last_name, first_name, middle_name, birth_date, phone, email, created_at, updated_at) VALUES
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a01', 'Иванов', 'Иван', 'Иванович', '1985-03-15', '+7-999-111-11-11', 'ivanov@company.ru', NOW(), NOW()),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a02', 'Петров', 'Пётр', 'Петрович', '1990-07-22', '+7-999-222-22-22', 'petrov@company.ru', NOW(), NOW()),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a03', 'Сидорова', 'Анна', 'Сергеевна', '1988-11-30', '+7-999-333-33-33', 'sidorova@company.ru', NOW(), NOW()),
