@@ -132,16 +132,6 @@ export default function App() {
               meta: { label: 'Отчёты', icon: <BarChartOutlined /> },
             },
             {
-              name: 'reports/verifications-due',
-              list: '/reports/verifications-due',
-              meta: { label: 'Поверки (текущий месяц)', parent: 'reports' },
-            },
-            {
-              name: 'reports/verifications-period',
-              list: '/reports/verifications-period',
-              meta: { label: 'Поверки за период', parent: 'reports' },
-            },
-            {
               name: 'reports/depreciation',
               list: '/reports/depreciation',
               meta: { label: 'Амортизация', parent: 'reports' },
@@ -233,8 +223,6 @@ export default function App() {
               </Route>
 
               <Route path="reports">
-                <Route path="verifications-due" element={<VerificationsDueList />} />
-                <Route path="verifications-period" element={<VerificationsPeriodList />} />
                 <Route path="depreciation" element={<DepreciationReportList />} />
                 <Route path="employees" element={<EmployeeReportList />} />
                 <Route path="departments" element={<DepartmentReportList />} />
